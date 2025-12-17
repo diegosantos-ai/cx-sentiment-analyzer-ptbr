@@ -29,6 +29,10 @@ Goal: detect sentiment (Ruim/Bom) from free-text tickets to help CX and Product 
 - VADER (English lexicon) performed poorly in PT-BR → I built a custom PT-BR lexicon.
 - Random labels produced low accuracy → I defined a logical labelling rule based on domain knowledge.
 - Mixing `.ipynb` and `.py` content broke the app → I separated analysis (notebook) and product (`app.py`).
+- In tests with external sentences (20 examples outside the original dataset), the model performs well on clear complaints but tends to classify praises and neutral sentences as **Negative**, with 60–70% confidence.
+- This reveals a bias in the training data (focused mainly on customer pain points) and highlights the importance of having a manually labeled validation set and more diverse positive/neutral examples.
+- Next iteration: create a small "golden set" with human labels (Positive / Negative / Neutral) and enrich the training dataset with short positive sentences and good-recovery cases (problems that were solved well).
+
 
 ##  Next steps
 
