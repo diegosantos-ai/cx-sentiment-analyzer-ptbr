@@ -1,44 +1,154 @@
-# CX Sentiment Analyzer PT-BR
+# CX Ticket Sentiment Analyzer (PT-BR)
 
-Customer Service sentiment analyzer in Brazilian Portuguese using Python and Streamlit.
+Projeto de análise de sentimento supervisionada aplicado a **tickets de atendimento ao cliente em português**, com foco em apoiar times de Customer Experience (CX) a priorizar atendimentos e entender o risco de churn a partir de texto livre.
 
-##  Business Problem
+---
 
-Support teams receive dozens of tickets per day in Portuguese and struggle to quickly identify which ones are **frustrated customers** vs **satisfied customers**.  
-Goal: detect sentiment (Ruim/Bom) from free-text tickets to help CX and Product prioritize actions.
+## Visão geral
 
-##  What this project does
+Este repositório contém:
 
-- Creates a small CX dataset in PT-BR (100 synthetic tickets) based on real support situations.
-- Cleans and normalizes the text (`text_clean`) for analysis.
-- Builds a simple PT-BR sentiment model using a custom lexicon (words like *demora, erro, ótimo, excelente*).
-- Achieves around **83% accuracy** against logical labels (regra de negócio).
-- Exposes the model via a **Streamlit app** where you type a ticket and get:
-  - A sentiment score.
-  - A prediction: **Bom** or **Ruim**.
+- Um **notebook** de modelagem (`cx_ticket_sentiment_modeling.ipynb`) que prepara os dados, treina e avalia um modelo de sentimento para tickets de CX em PT-BR. [file:138]  
+- Um **app Streamlit** (`app.py`) que carrega o modelo treinado e fornece uma interface simples para analistas e gestores testarem tickets reais e visualizarem um histórico de análises. [file:96]  
 
-##  Tech stack
+O objetivo não é só classificar como positivo/negativo, mas aproximar a saída do modelo da linguagem de negócio de CX: **risco de churn, nível de satisfação e leitura acionável**.
 
-- Python (pandas, seaborn, nltk)
-- Jupyter Notebook for EDA and modeling: `cx_ticket_sentiment_modeling.ipynb`
-- Streamlit app: `app.py`
+---
 
-##  Learning & Pitfalls
+## Problema de negócio
 
-- External CSV URLs can break (HTTP 404) → I created my own PT-BR CX dataset.
-- VADER (English lexicon) performed poorly in PT-BR → I built a custom PT-BR lexicon.
-- Random labels produced low accuracy → I defined a logical labelling rule based on domain knowledge.
-- Mixing `.ipynb` and `.py` content broke the app → I separated analysis (notebook) and product (`app.py`).
-- In tests with external sentences (20 examples outside the original dataset), the model performs well on clear complaints but tends to classify praises and neutral sentences as **Negative**, with 60–70% confidence.
-- This reveals a bias in the training data (focused mainly on customer pain points) and highlights the importance of having a manually labeled validation set and more diverse positive/neutral examples.
-- Next iteration: create a small "golden set" with human labels (Positive / Negative / Neutral) and enrich the training dataset with short positive sentences and good-recovery cases (problems that were solved well).
+Times de CX recebem diariamente dezenas ou centenas de tickets em texto livre (chat, e-mail, formulários), e nem sempre conseguem:
+
+- Identificar rapidamente quais tickets têm maior **risco de churn**.
+- Diferenciar feedbacks claramente positivos de mensagens **neutras ou “mornas”**.
+- Ter uma visão consolidada da **“temperatura de satisfação”** em um período.
+
+Este projeto propõe um MVP de produto que:
+
+- Classifica cada ticket como **Bom**, **Ruim** ou **Neutro**.
+- Associa uma **confiança** ao rótulo.
+- Gera uma **leitura de CX** curta, explicando o resultado em termos de risco e próximos passos.
+
+---
+
+## Abordagem técnica
+
+### Modelagem
+
+No notebook de modelagem é treinado um pipeline de NLP em Python usando scikit-learn: [file:138]
+
+- **Vetorização de texto** com `TfidfVectorizer`, em português, usando:
+  - n-gramas de 1 a 2 palavras (`ngram_range=(1, 2)`).
+  - `min_df=2` para ignorar termos extremamente raros.
+- **Classificação** com `LogisticRegression`:
+  - `class_weight='balanced'` para lidar melhor com desequilíbrios entre classes.
+  - `max_iter=1000` para garantir convergência do otimizador.
+
+O modelo é treinado para distinguir entre tickets **positivos (1)** e **negativos (0)** a partir de frases rotuladas manualmente. [file:138]
+
+Após o treino, o pipeline é serializado em disco (ex.: `tfidf_logreg_model.pkl`) usando `joblib` para ser consumido pelo app Streamlit.
+
+### Métricas
+
+O modelo é avaliado com métricas padrão de classificação (accuracy, precision, recall, f1) em um conjunto de validação separado. [file:138]
+
+Em vez de otimizar apenas um número, a análise do desempenho considera:
+
+- Exemplos onde o modelo erra (ex.: frases negativas classificadas como positivas).
+- O impacto desses erros na operação de CX.
+- A necessidade de uma **classe Neutro** baseada em limiar de confiança para reduzir falsos positivos/negativos na ponta.
+
+---
+
+## App Streamlit
+
+O arquivo `app.py` implementa uma interface simples em Streamlit para testar o modelo com tickets reais. [file:96]
+
+### Funcionalidades atuais
+
+- **Entrada de ticket**  
+  Caixa de texto onde o usuário digita a frase do cliente (ex.: “Atendente demorou para responder no chat”).
+
+- **Predição de sentimento**  
+  Ao clicar em **“Analisar sentimento”**, o app:
+  - Gera as probabilidades de cada classe com `predict_proba`.
+  - Seleciona o rótulo previsto (`Bom` para positivo, `Ruim` para negativo). [file:96]  
+  - Calcula a confiança máxima (`max_prob`).
+
+- **Classe Neutro baseada em confiança**  
+  Foi adotada uma regra de negócio para tratar incerteza: [file:96]  
+  - Se `max_prob` for menor que um limiar (atualmente `0.6`), o ticket é classificado como **Neutro**.  
+  - Isso representa frases mais **informativas/mornas**, sem sinal forte de satisfação ou frustração, reduzindo a chance de interpretações erradas pelo time de CX.
+
+- **Leitura de CX em linguagem de negócio**  
+  Para cada ticket, o app gera uma leitura curta, por exemplo: [file:96]  
+  - **Bom**: “Cliente provavelmente satisfeito, baixo risco de churn.”  
+  - **Ruim**: “Cliente possivelmente frustrado, maior risco de churn; priorizar follow-up.”  
+  - **Neutro**: “Baixo sinal de emoção; frase informativa, sem indício forte de satisfação ou frustração.”
+
+- **Histórico de tickets analisados**  
+  O app mantém, em `st.session_state`, um **DataFrame** com as colunas: [file:96]  
+  - `Texto do cliente`  
+  - `Sentimento identificado` (rótulo + confiança)  
+  - `Leitura de CX`  
+
+- **Relatório consolidado (últimos 20)**  
+  Um botão permite visualizar uma tabela com os **últimos 20 tickets analisados**, simulando uma visão rápida para um analista/gestor acompanhar a “temperatura” recente dos atendimentos. [file:96]
+
+---
+
+## Como rodar o projeto
+
+### 1. Clonar o repositório
 
 
-##  Next steps
+### 2. Criar ambiente e instalar dependências
 
-- Evolve from a lexical model to a supervised classifier using TF-IDF + Logistic Regression (implemented in the notebook, achieving 100% accuracy on the current test set).
-- Increase the dataset with more real/synthetic Customer Experience (CX) tickets in PT-BR to validate the model's generalization.
-- Apply stratified cross-validation (k-fold) to obtain a more robust performance estimate.
-- Compare with other algorithms (Naive Bayes, Random Forest) and choose the best trade-off between performance and simplicity.
-- Publish the Streamlit app with the supervised model in production.
+Recomenda-se usar Python 3.10+.
+
+
+(As dependências principais são: `pandas`, `scikit-learn`, `joblib`, `streamlit`.)
+
+### 3. Treinar o modelo (opcional)
+
+Se quiser refazer o treino:
+
+1. Abra o notebook `cx_ticket_sentiment_modeling.ipynb` em Jupyter/VSCode. [file:138]  
+2. Execute as células até a etapa de salvamento do modelo (`joblib.dump(...)`).  
+3. Confirme que o arquivo `tfidf_logreg_model.pkl` foi gerado na raiz do projeto ou no caminho esperado pelo `app.py`.
+
+### 4. Rodar o app Streamlit
+
+
+Depois, acesse o link gerado (geralmente `http://localhost:8501`) no navegador.
+
+---
+
+## Roadmap (próximos passos)
+
+As próximas melhorias planejadas para evoluir este MVP em direção a um produto mais completo para CX são:
+
+- **Configurações de limiar de Neutro**  
+  - Adicionar uma aba ou painel de “Configurações” no app para permitir que o usuário ajuste o limiar de confiança (ex.: 0.5–0.9) sem alterar o código.
+
+- **Visão de gestor / resumo de saúde**  
+  - Criar um mini resumo com contagem de **Bom / Neutro / Ruim** nos últimos N tickets.  
+  - Expor essa visão no topo da tela ou em uma aba específica para facilitar o acompanhamento da “temperatura” de satisfação.
+
+- **Termômetro de satisfação e plano de ação**  
+  - Construir um “termômetro” simples (ex.: verde, amarelo, vermelho) com base na distribuição de sentimentos e níveis de confiança.  
+  - Associar a cada faixa um **texto de interpretação** e sugestões de ação em CX (ex.: reforçar canais de feedback, priorizar contato com clientes detratores).
+
+Essas evoluções vão aproximar o projeto de um **produto de suporte à decisão para CX**, indo além de um experimento isolado de machine learning.
+
+---
+
+## Inspiração e limitações
+
+- Modelo treinado em um conjunto reduzido de tickets em português, focado em um tipo de atendimento específico, o que limita a generalização para outros contextos. [file:138]  
+- Não há tratamento específico para sarcasmo, ironia ou contexto multicanal.  
+- O foco deste projeto é didático e de portfólio: demonstrar a capacidade de **definir problema de negócio, treinar um modelo simples e empacotar isso em um app utilizável por times de CX**.
+
+Sinta-se à vontade para abrir issues ou sugestões de melhoria, especialmente em relação à UX do app, novas regras de negócio de CX e ampliação do conjunto de dados.
+
 
