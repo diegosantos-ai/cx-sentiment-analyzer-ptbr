@@ -42,11 +42,14 @@ def sentiment_ptbr(text: str) -> Tuple[float, float]:
         return 0.5, 0.0
     
     text_lower = text.lower()
-    words = text_lower.split()
+    # Remove punctuation and split into words
+    import re
+    words = re.findall(r'\b\w+\b', text_lower)
     
-    # Conta palavras positivas e negativas
-    pos_count = sum(1 for word in ptbr_positive if word in text_lower)
-    neg_count = sum(1 for word in ptbr_negative if word in text_lower)
+    # Conta palavras positivas e negativas (whole word matching)
+    # Check if the keyword appears as a complete word in the text
+    pos_count = sum(1 for keyword in ptbr_positive if keyword in words)
+    neg_count = sum(1 for keyword in ptbr_negative if keyword in words)
     
     # Score normalizado
     total_count = pos_count + neg_count
@@ -267,8 +270,12 @@ if len(st.session_state.history) > 0:
         hide_index=True
     )
     
-    # Opção de download
-    csv = st.session_state.history.to_csv(index=False).encode('utf-8')
+    # Opção de download (lazy generation)
+    @st.cache_data
+    def convert_df_to_csv(df):
+        return df.to_csv(index=False).encode('utf-8')
+    
+    csv = convert_df_to_csv(st.session_state.history)
     st.download_button(
         label="📥 Baixar histórico completo (CSV)",
         data=csv,
