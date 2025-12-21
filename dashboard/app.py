@@ -47,7 +47,7 @@ def clean_text(text):
     if not isinstance(text, str):
         return ""
     text = re.sub(r'<[^>]+>', '', text)
-    text = re.sub(r'http\S+|www\.\S+', '', text) # Remove URLs
+    text = re.sub(r'http\S+|www\.\S+', '', text) # Remover URLs
     text = re.sub(r'[^a-zA-Z\u00C0-\u00FF\s]', '', text)
     text = text.lower()
     return text.strip()
@@ -85,7 +85,7 @@ def classify_sentiment(text: str, model) -> tuple:
     
     cleaned_text = clean_text(text)
     
-    # Predict probabilities
+    # Prever probabilidades
     try:
         probas = model.predict_proba([cleaned_text])[0]
         classes = model.classes_
